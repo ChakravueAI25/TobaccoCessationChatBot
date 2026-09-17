@@ -1,0 +1,162 @@
+# The whole research service: API, PostgreSQL and the model, on any host with Docker.
+#
+# `docker compose up -d` on the study's Google Cloud VM gives the same thing that runs on the
+# development laptop. Nothing in here is host-specific.
+#
+# **The model is behind a profile, not omitted.** It used to be left out entirely, on the
+# reasoning that a GPU's container runtime differs per host - true when the host could be
+# anybody's server. There is one host now, so the only real question is whether that VM has a
+# GPU, and a profile answers it:
+#
+#   docker compose --profile cpu up -d     # any VM. ~7 tokens/sec, so replies take seconds.
+#   docker compose --profile gpu up -d     # needs an NVIDIA GPU and the container toolkit.
+#
+# Neither profile is the default, so a bare `docker compose up -d` still brings up API and
+# database alone. That is a supported state: the app treats an unavailable model as
+# fallback-only rather than as an outage.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-quit_smoke_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-quit_smoke_research}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Not published. The API reaches it over the compose network; exposing 5432 to the host is
+    # how a study database ends up on the internet.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quit_smoke_app} -d ${POSTGRES_DB:-quit_smoke_research}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Built here rather than copied from .env so the password lives in exactly one place.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quit_smoke_app}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-quit_smoke_research}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      AUTH_ENABLED: "true"
+      DEVELOPMENT_API_KEY: ${DEVELOPMENT_API_KEY:?set DEVELOPMENT_API_KEY in .env}
+      LLAMA_SERVER_URL: ${LLAMA_SERVER_URL:-}
+      LLAMA_TIMEOUT_SECONDS: ${LLAMA_TIMEOUT_SECONDS:-120}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PUBLISH_PORT:-8000}:8000"
+    volumes:
+      - ./exports:/srv/quitsmoke/exports
+      - ./backups:/srv/quitsmoke/backups
+    extra_hosts:
+      # So LLAMA_SERVER_URL can name the host's own GPU process on Linux, where
+      # host.docker.internal is not resolvable by default.
+      - "host.docker.internal:host-gateway"
+
+  # Runs once and exits. Separate from the API so a migration failure is visible as a failed
+  # container rather than as an API that started and then errored on every query.
+  migrate:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quit_smoke_app}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-quit_smoke_research}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEVELOPMENT_API_KEY: ${DEVELOPMENT_API_KEY}
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    restart: "no"
+
+  # Inference, on the processor. Slow but it needs nothing from the host: no driver, no toolkit,
+  # no GPU quota to request. This is the profile to start the study on.
+  #
+  # -c is the WHOLE key-value cache, not the per-conversation window, so 8192 across --parallel 4
+  # gives each of four concurrent turns the 2048 tokens the prompt is built for. Raising either
+  # number raises resident memory linearly: 288 MiB per 2048 tokens for this model.
+  llama:
+    profiles: ["cpu"]
+    image: ghcr.io/ggml-org/llama.cpp:server
+    restart: unless-stopped
+    volumes:
+      - ./models:/models:ro
+    command: >
+      -m /models/${MODEL_FILENAME:-Qwen3-4B-Q4_K_M.gguf}
+      -c 8192 --parallel 4 -ngl 0
+      --host 0.0.0.0 --port 8080
+    # Not published. The API reaches it over the compose network; an open inference port is a
+    # free text generator for anyone who finds the VM.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      # The weights take a couple of minutes to read on a cold boot, and llama-server binds the
+      # port before it has finished. Without the grace period the container restarts mid-load,
+      # forever.
+      start_period: 240s
+      retries: 3
+
+  # The same thing on a GPU: ~1.3 s a reply instead of ~9. Needs the NVIDIA driver and the
+  # container toolkit on the VM - deploy/gcp/startup.sh installs both when the VM has a GPU.
+  llama-gpu:
+    profiles: ["gpu"]
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    restart: unless-stopped
+    volumes:
+      - ./models:/models:ro
+    command: >
+      -m /models/${MODEL_FILENAME:-Qwen3-4B-Q4_K_M.gguf}
+      -c 8192 --parallel 4 -ngl 99
+      --host 0.0.0.0 --port 8080
+    # Answers to the same name as the CPU service, so LLAMA_SERVER_URL is http://llama:8080
+    # whichever profile is running and switching between them is one command, not an edit.
+    networks:
+      default:
+        aliases: ["llama"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 180s
+      retries: 3
+
+  # HTTPS, because the participant's messages are in these requests.
+  #
+  # Needs a hostname, not an IP - certificate authorities do not issue for bare addresses. With
+  # no domain to hand, PUBLIC_HOST is set to <external-ip>.sslip.io, which resolves to that IP
+  # and which Let's Encrypt will issue for. Caddy then renews on its own.
+  #
+  # Behind a profile only so `docker compose up` on a development laptop does not try to get a
+  # certificate for localhost. On the VM it is always on: without it every sync, login and chat
+  # turn crosses the internet in clear text, and the release APK refuses cleartext anyway.
+  caddy:
+    profiles: ["tls"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST, e.g. 34-1-2-3.sslip.io}
+    volumes:
+      - ./deploy/gcp/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data          # the certificate and its private key; losing it means re-issuing
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

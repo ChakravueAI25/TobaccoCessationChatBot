@@ -1,0 +1,1 @@
+Analytics scripts consume controlled JSON/CSV exports only. They must never write to the source PostgreSQL database.

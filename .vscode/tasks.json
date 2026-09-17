@@ -1,0 +1,133 @@
+{
+  // Run the study stack from VS Code, each service in its own terminal.
+  //
+  // Ctrl+Shift+P -> "Tasks: Run Task" -> "Run study stack" starts all three.
+  //
+  // Deliberately three visible terminals rather than the hidden-window script in scripts/.
+  // Somebody running this to watch it wants to see the log scroll and press Ctrl+C to stop one -
+  // both of which a background process with redirected output takes away.
+  //
+  // The database is not here. PostgreSQL is a Windows service, nothing in the study starts or
+  // stops it, and it holds the only data that cannot be rebuilt.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "1. Backend API",
+      "type": "shell",
+      "command": "uv run uvicorn api.app.main:app --host 127.0.0.1 --port 8000 --reload",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "presentation": {
+        "group": "stack",
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      // Not in the compose file and not managed by the API for the same reason: it needs a GPU,
+      // and it is reached over LLAMA_SERVER_URL so it can live anywhere.
+      "label": "2. Model (llama-server)",
+      // Runs through a script rather than launching the exe directly. VS Code rejected the
+      // direct path ("Path to shell executable ... does not exist") because the path mixed
+      // separators - LOCALAPPDATA gives backslashes, the task gave forward slashes - even
+      // though the file existed and ran fine from a shell. The script resolves the paths in
+      // PowerShell and reports a real reason when the binary, the weights, or the port are
+      // the problem, instead of leaving the API to answer 503 with no explanation.
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_model.ps1",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "presentation": {
+        "group": "stack",
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      // The endsPattern is what makes this task depend-able. A background task never exits, so
+      // a plain `dependsOn` with `sequence` would wait on it forever; VS Code needs to be told
+      // which log line means "ready". `listening on http` is llama-server's, and it prints it
+      // only after the weights are loaded - not when the port binds, which is earlier and would
+      // let the API through while generation still 503s.
+      //
+      // The "already up, nothing to do" path in start_model.ps1 exits 0 without printing it, so
+      // beginsPattern also matches the banner: otherwise re-running the stack with the model
+      // already running would hang waiting for a line that is never coming.
+      "problemMatcher": {
+        "owner": "llama-server",
+        "pattern": { "regexp": "^(?!x)x$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^(llama-server|Loading the model)",
+          "endsPattern": "(listening on http|model is up and nothing needs doing)"
+        }
+      }
+    },
+    {
+      // Only needed for a phone that is not on this network. Testing on the same wifi does not
+      // need it - point local.properties at this machine's LAN address instead.
+      "label": "3. Tunnel (ngrok)",
+      "type": "shell",
+      "command": "ngrok http 8000 --url=favorably-immature-fountain.ngrok-free.dev",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "presentation": {
+        "group": "stack",
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      // Model FIRST, then the API and tunnel.
+      //
+      // This used to be parallel, with a comment calling a still-loading model "a supported
+      // state rather than an outage". That was wrong in practice: when the model task failed,
+      // the API came up perfectly healthy and every chat turn fell back to deterministic text
+      // that reads like a working conversation. The failure was invisible for a day of testing
+      // and cost two rebuilds of llama.cpp chasing the wrong thing.
+      //
+      // The fallback stays - it is required (spec 10 §24) and it is what answers a dropped
+      // connection. What changes is that it is no longer the *normal* path: the model is a
+      // prerequisite of the stack, and /health now reports it so a failure is visible.
+      "label": "Run study stack",
+      "dependsOn": ["2. Model (llama-server)", "Backend and tunnel"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      // These two genuinely have no ordering between them.
+      "label": "Backend and tunnel",
+      "dependsOn": ["1. Backend API", "3. Tunnel (ngrok)"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "Health check",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/health.ps1",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "panel": "shared", "reveal": "always", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Show study data",
+      "type": "shell",
+      "command": "uv run python scripts/show_data.py",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "panel": "shared", "reveal": "always", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      // Now a PREVIEW, not a wipe. The script requires --yes, which this task deliberately
+      // does not pass: one click used to truncate every participant table with no confirmation
+      // and no summary, and that is exactly how an account mid-test got destroyed. Run it from
+      // a terminal with --yes when you actually mean it.
+      "label": "Clear all participant data (preview)",
+      "type": "shell",
+      "command": "uv run python scripts/reset_participants.py",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "panel": "shared", "reveal": "always", "clear": true },
+      "problemMatcher": []
+    }
+  ]
+}

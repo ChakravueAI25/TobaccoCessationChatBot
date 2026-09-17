@@ -1,0 +1,32 @@
+[project]
+name = "tobacco-cessation-backend"
+version = "0.1.0"
+description = "Central research ingestion backend for Quit Smoke V1"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.19.1",
+    "fastapi>=0.141.1",
+    "psycopg[binary]>=3.3.4",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy>=2.0.52",
+    # Spec 23 §5 lists Uvicorn as a required component; without it the app imports but
+    # cannot be served, so it belongs in the runtime dependencies rather than dev.
+    "uvicorn>=0.38.0",
+    # routes/generate.py imports httpx at module load to proxy to llama-server, so the app
+    # cannot even be imported without it. It lived in the dev group, which meant every
+    # --no-dev install produced a backend that crashed on startup.
+    "httpx>=0.28.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,33 @@
+.env
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+logs/
+backups/
+exports/working/
+exports/final/
+*.tmp
+*.swp
+local_postgresql/
+participant_data/
+# Anything an export writes. `exports/working/` and `exports/final/` are the configured
+# directories, but a mistyped EXPORT_DIRECTORY should not put participant data in a commit.
+exports/
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Model weights. The inference server needs the GGUF locally, but it is 2.5 GB and is fetched
+# by scripts/download_model.ps1 in the app repo — never committed.
+models/
+*.gguf
+bin/

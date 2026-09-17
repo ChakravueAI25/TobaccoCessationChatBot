@@ -1,0 +1,18 @@
+# Terminates TLS for the study API. Caddy gets and renews the certificate by itself; the only
+# thing it needs from us is a name that resolves to this VM.
+{$PUBLIC_HOST} {
+	encode zstd gzip
+
+	# The API is not published to the host at all when this is running, so this is the only way
+	# in from outside. `api` is the compose service name.
+	reverse_proxy api:8000
+
+	# Who called and what they got. Not what they said - request bodies carry participant
+	# messages, and an access log is the wrong place for those to accumulate.
+	log {
+		output file /data/access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
+}

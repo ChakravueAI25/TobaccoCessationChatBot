@@ -1,0 +1,23 @@
+# Keep the image to what the service actually runs.
+#
+# .env first and deliberately: it holds the database password and the device API key, and a
+# COPY . . would otherwise bake both into an image layer that anyone who pulls it can read.
+.env
+.env.*
+!.env.example
+
+.git
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Study data. Mounted as volumes at runtime, never part of the image.
+exports/
+backups/
+*.sql
+*.sql.gz
+
+# Windows-only tooling, useless in a Linux container.
+scripts/*.ps1
