@@ -112,7 +112,7 @@ say "copying the source"
 # quietly stops being what was tested.
 on_vm "sudo rm -rf $APP && sudo mkdir -p $APP $REMOTE/{models,exports,backups} && sudo chown -R \$USER $APP"
 tar --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude='*.pyc' \
-    --exclude=exports --exclude=backups --exclude=models --exclude=dist --exclude=.env \
+    --exclude=exports --exclude=backups --exclude=./models --exclude=dist --exclude=.env \
     -czf - . | on_vm "tar xzf - -C $APP"
 on_vm "sudo rm -rf $APP/.env $APP/models $APP/exports $APP/backups \
   && sudo ln -s $REMOTE/.env $APP/.env \
