@@ -19,5 +19,10 @@ backups/
 *.sql
 *.sql.gz
 
+# The application models package is source code, not model weights. The broad models/ rule
+# above would otherwise remove api/app/models from the Docker build context.
+!api/app/models/
+!api/app/models/**
+
 # Windows-only tooling, useless in a Linux container.
 scripts/*.ps1
