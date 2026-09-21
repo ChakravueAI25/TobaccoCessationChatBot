@@ -114,8 +114,11 @@ on_vm "sudo rm -rf $APP && sudo mkdir -p $APP $REMOTE/{models,exports,backups} &
 tar --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude='*.pyc' \
     --exclude=exports --exclude=backups --exclude=models --exclude=dist --exclude=.env \
     -czf - . | on_vm "tar xzf - -C $APP"
-on_vm "cd $APP && ln -sfn $REMOTE/.env .env && ln -sfn $REMOTE/models models \
-        && ln -sfn $REMOTE/exports exports && ln -sfn $REMOTE/backups backups"
+on_vm "sudo rm -rf $APP/.env $APP/models $APP/exports $APP/backups \
+  && sudo ln -s $REMOTE/.env $APP/.env \
+  && sudo ln -s $REMOTE/models $APP/models \
+  && sudo ln -s $REMOTE/exports $APP/exports \
+  && sudo ln -s $REMOTE/backups $APP/backups"
 
 # ---------------------------------------------------------------- run it
 say "building and starting (--profile $PROFILE)"
