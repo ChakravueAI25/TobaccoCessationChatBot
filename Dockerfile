@@ -33,7 +33,7 @@ RUN uv sync --frozen --no-dev
 # Non-root. The service writes only to the export and backup directories, and those are volumes.
 RUN useradd --system --uid 10001 quitsmoke \
     && mkdir -p /srv/quitsmoke/exports /srv/quitsmoke/backups /tmp/uv-cache \
-    && chown -R quitsmoke:quitsmoke /srv/quitsmoke
+    && chown -R quitsmoke:quitsmoke /srv/quitsmoke /tmp/uv-cache
 USER quitsmoke
 
 # 0.0.0.0 inside the container only. What is reachable from outside is the published port, which
