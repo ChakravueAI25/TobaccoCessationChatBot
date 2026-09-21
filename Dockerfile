@@ -22,7 +22,8 @@ ENV PYTHONUNBUFFERED=1 \
     UV_PYTHON=3.12 \
     UV_PYTHON_DOWNLOADS=never \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
-    UV_COMPILE_BYTECODE=1
+    UV_COMPILE_BYTECODE=1 \
+    PYTHONPATH=/srv/quitsmoke
 
 WORKDIR /srv/quitsmoke
 
@@ -33,6 +34,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY . .
+RUN test -f api/app/models/__init__.py
 RUN uv sync --frozen --no-dev
 
 # Non-root. The service writes only to the export and backup directories, and those are volumes.
