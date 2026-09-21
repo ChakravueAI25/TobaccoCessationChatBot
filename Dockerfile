@@ -21,9 +21,12 @@ ENV PYTHONUNBUFFERED=1 \
     UV_CACHE_DIR=/tmp/uv-cache \
     UV_PYTHON=3.12 \
     UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_COMPILE_BYTECODE=1
 
 WORKDIR /srv/quitsmoke
+
+RUN mkdir -p /opt/venv /tmp/uv-cache
 
 # Dependencies before source, so a code change does not re-resolve the whole environment.
 COPY pyproject.toml uv.lock ./
@@ -34,8 +37,8 @@ RUN uv sync --frozen --no-dev
 
 # Non-root. The service writes only to the export and backup directories, and those are volumes.
 RUN useradd --system --uid 10001 quitsmoke \
-    && mkdir -p /srv/quitsmoke/exports /srv/quitsmoke/backups /tmp/uv-cache \
-    && chown -R quitsmoke:quitsmoke /srv/quitsmoke /tmp/uv-cache
+    && mkdir -p /srv/quitsmoke/exports /srv/quitsmoke/backups \
+    && chown -R quitsmoke:quitsmoke /srv/quitsmoke /opt/venv /tmp/uv-cache
 USER quitsmoke
 
 # 0.0.0.0 inside the container only. What is reachable from outside is the published port, which
