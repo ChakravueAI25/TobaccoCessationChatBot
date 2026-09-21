@@ -18,6 +18,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_CACHE_DIR=/tmp/uv-cache \
     UV_COMPILE_BYTECODE=1
 
 WORKDIR /srv/quitsmoke
@@ -31,7 +32,7 @@ RUN uv sync --frozen --no-dev
 
 # Non-root. The service writes only to the export and backup directories, and those are volumes.
 RUN useradd --system --uid 10001 quitsmoke \
-    && mkdir -p /srv/quitsmoke/exports /srv/quitsmoke/backups \
+    && mkdir -p /srv/quitsmoke/exports /srv/quitsmoke/backups /tmp/uv-cache \
     && chown -R quitsmoke:quitsmoke /srv/quitsmoke
 USER quitsmoke
 
