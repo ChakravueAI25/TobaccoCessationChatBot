@@ -17,13 +17,15 @@ compounded into "PostgreSQL has never been connected":
 
 Using the engine directly avoids both, because nothing round-trips through the ini file.
 """
+from importlib import import_module
 from logging.config import fileConfig
 
 from alembic import context
 
 from api.app.config import get_settings
 from api.app.database import Base, engine
-from api.app import models  # noqa: F401  - imported for its side effect: registers every table
+
+import_module("api.app.models")
 
 if context.config.config_file_name:
     fileConfig(context.config.config_file_name)
